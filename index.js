@@ -10,22 +10,43 @@ app.use((req, res, next) => {
     next();
 });
 
-// Basic endpoint that receives POST requests
+// Function to send message to Slack
+async function sendToSlack(message) {
+    const slackWebhookUrl = process.env.SLACK_WEBHOOK_URL;
+    try {
+        const response = await fetch(slackWebhookUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ text: message }),
+        });
+        return response.ok;
+    } catch (error) {
+        console.error('Error sending to Slack:', error);
+        return false;
+    }
+}
+
 app.get('/webhook', (req, res) => {
     res.send('Webhook endpoint is ready to receive POST requests. If you see this message, the endpoint is working!');
 });
 
-app.post('/webhook', (req, res) => {
+app.post('/webhook', async (req, res) => {
     console.log('Received webhook:', req.body);
-    res.send('Received!');
+    
+    // Here we'll process the meeting data and send it to Slack
+    const message = `New meeting summary received:\n${JSON.stringify(req.body, null, 2)}`;
+    
+    const slackResult = await sendToSlack(message);
+    
+    res.send(slackResult ? 'Processed and sent to Slack!' : 'Received but failed to send to Slack');
 });
 
-// Add a basic GET endpoint for testing
 app.get('/', (req, res) => {
     res.send('Server is running!');
 });
 
-// Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
