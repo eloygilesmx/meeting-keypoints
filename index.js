@@ -1,5 +1,5 @@
 const express = require('express');
-const fetch = require('node-fetch');  // Changed this line
+const fetch = require('node-fetch');
 const app = express();
 
 app.use(express.json());
@@ -10,54 +10,74 @@ app.use((req, res, next) => {
     next();
 });
 
+// Function to analyze meeting with ChatGPT
+async function analyzeMeetingWithGPT(meetingData) {
+    try {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+            },
+            body: JSON.stringify({
+                model: "gpt-3.5-turbo",
+                messages: [{
+                    role: "system",
+                    content: "You are a helpful assistant that analyzes meeting transcripts and extracts key points, action items, and important decisions."
+                }, {
+                    role: "user",
+                    content: `Please analyze this meeting data and extract the key points, decisions, and action items: ${JSON.stringify(meetingData)}`
+                }]
+            })
+        });
+
+        const data = await response.json();
+        return data.choices[0].message.content;
+    } catch (error) {
+        console.error('Error analyzing meeting:', error);
+        throw error;
+    }
+}
+
 async function sendToSlack(message) {
     const slackWebhookUrl = process.env.SLACK_WEBHOOK_URL;
     try {
-        console.log('Attempting to send to Slack...', { message, webhookUrl: slackWebhookUrl });
-        
         const response = await fetch(slackWebhookUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                text: typeof message === 'string' ? message : JSON.stringify(message, null, 2)
-            })
+            body: JSON.stringify({ text: message })
         });
-        
-        const responseText = await response.text();
-        console.log('Slack response:', responseText);
-        
         return response.ok;
     } catch (error) {
-        console.error('Error sending to Slack:', error.message);
+        console.error('Error sending to Slack:', error);
         return false;
     }
 }
 
 app.post('/webhook', async (req, res) => {
     try {
-        console.log('Received webhook data:', req.body);
-        
-        // Format the message nicely
+        console.log('Received meeting data:', req.body);
+
+        // Analyze meeting data with ChatGPT
+        const analysis = await analyzeMeetingWithGPT(req.body);
+
+        // Format message for Slack
         const message = `
-*New Meeting Summary*
+*Meeting Analysis*
 📅 *Title:* ${req.body.meetingTitle}
 📆 *Date:* ${req.body.date}
 👥 *Participants:* ${req.body.participants.join(', ')}
 
-📝 *Summary:*
-${req.body.summary}
-
-✅ *Action Items:*
-${req.body.actionItems.map(item => `• ${item}`).join('\n')}
+🤖 *AI Analysis:*
+${analysis}
 `;
         
         const slackResult = await sendToSlack(message);
-        console.log('Slack send result:', slackResult);
         
         if (slackResult) {
-            res.json({ success: true, message: 'Sent to Slack successfully' });
+            res.json({ success: true, message: 'Analyzed and sent to Slack successfully' });
         } else {
             res.json({ success: false, message: 'Failed to send to Slack' });
         }
