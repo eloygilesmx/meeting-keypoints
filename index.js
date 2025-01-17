@@ -1,8 +1,34 @@
 const express = require('express');
 const fetch = require('node-fetch');
+const crypto = require('crypto');
 const app = express();
 
-app.use(express.json());
+app.use(express.json({
+    verify: (req, res, buf) => {
+        req.rawBody = buf;
+    }
+}));
+
+// Verification middleware
+function verifyCirclebackSignature(req, res, next) {
+    const signature = req.headers['x-circleback-signature'];
+    const secret = process.env.CIRCLEBACK_SECRET;
+
+    if (!signature) {
+        return res.status(401).json({ error: 'No signature header' });
+    }
+
+    const hmac = crypto.createHmac('sha256', secret)
+        .update(req.rawBody)
+        .digest('hex');
+
+    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(hmac))) {
+        return res.status(401).json({ error: 'Invalid signature' });
+    }
+
+    next();
+}
+
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -119,7 +145,7 @@ async function sendToSlack(message) {
     }
 }
 
-app.post('/webhook', async (req, res) => {
+app.post('/webhook', verifyCirclebackSignature, async (req, res) => {
     try {
         console.log('Received meeting data:', req.body);
 
