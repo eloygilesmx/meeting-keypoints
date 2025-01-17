@@ -11,6 +11,10 @@ app.use((req, res, next) => {
 });
 
 // Basic endpoint that receives POST requests
+app.get('/webhook', (req, res) => {
+    res.send('Webhook endpoint is ready to receive POST requests. If you see this message, the endpoint is working!');
+});
+
 app.post('/webhook', (req, res) => {
     console.log('Received webhook:', req.body);
     res.send('Received!');
