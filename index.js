@@ -1,7 +1,7 @@
 const express = require('express');
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 const app = express();
 
-// Allow JSON parsing and CORS
 app.use(express.json());
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
@@ -10,37 +10,61 @@ app.use((req, res, next) => {
     next();
 });
 
-// Function to send message to Slack
 async function sendToSlack(message) {
     const slackWebhookUrl = process.env.SLACK_WEBHOOK_URL;
     try {
+        console.log('Attempting to send to Slack...', { message, webhookUrl: slackWebhookUrl });
+        
         const response = await fetch(slackWebhookUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ text: message }),
+            body: JSON.stringify({
+                text: typeof message === 'string' ? message : JSON.stringify(message, null, 2)
+            })
         });
+        
+        const responseText = await response.text();
+        console.log('Slack response:', responseText);
+        
         return response.ok;
     } catch (error) {
-        console.error('Error sending to Slack:', error);
+        console.error('Error sending to Slack:', error.message);
         return false;
     }
 }
 
-app.get('/webhook', (req, res) => {
-    res.send('Webhook endpoint is ready to receive POST requests. If you see this message, the endpoint is working!');
-});
-
 app.post('/webhook', async (req, res) => {
-    console.log('Received webhook:', req.body);
-    
-    // Here we'll process the meeting data and send it to Slack
-    const message = `New meeting summary received:\n${JSON.stringify(req.body, null, 2)}`;
-    
-    const slackResult = await sendToSlack(message);
-    
-    res.send(slackResult ? 'Processed and sent to Slack!' : 'Received but failed to send to Slack');
+    try {
+        console.log('Received webhook data:', req.body);
+        
+        // Format the message nicely
+        const message = `
+*New Meeting Summary*
+📅 *Title:* ${req.body.meetingTitle}
+📆 *Date:* ${req.body.date}
+👥 *Participants:* ${req.body.participants.join(', ')}
+
+📝 *Summary:*
+${req.body.summary}
+
+✅ *Action Items:*
+${req.body.actionItems.map(item => `• ${item}`).join('\n')}
+`;
+        
+        const slackResult = await sendToSlack(message);
+        console.log('Slack send result:', slackResult);
+        
+        if (slackResult) {
+            res.json({ success: true, message: 'Sent to Slack successfully' });
+        } else {
+            res.json({ success: false, message: 'Failed to send to Slack' });
+        }
+    } catch (error) {
+        console.error('Webhook error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 app.get('/', (req, res) => {
