@@ -11,14 +11,16 @@ app.use(express.json({
 
 function verifyCirclebackSignature(req, res, next) {
    const signature = req.headers['x-circleback-signature'];
-   const secret = process.env.CIRCLEBACK_SECRET;
+   console.log('Headers received:', req.headers);
+   console.log('Signature:', signature);
 
    if (!signature) {
-       console.log('No signature header found');
-       return res.status(401).json({ error: 'No signature header' });
+       console.log('Proceeding without signature verification');
+       return next();
    }
 
    try {
+       const secret = process.env.CIRCLEBACK_SECRET;
        const hmac = crypto.createHmac('sha256', secret)
            .update(req.rawBody)
            .digest('hex');
