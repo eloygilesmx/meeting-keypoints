@@ -4,45 +4,51 @@ const crypto = require('crypto');
 const app = express();
 
 app.use(express.json({
-    verify: (req, res, buf) => {
-        req.rawBody = buf;
-    }
+   verify: (req, res, buf) => {
+       req.rawBody = buf;
+   }
 }));
 
-// Verification middleware
 function verifyCirclebackSignature(req, res, next) {
-    const signature = req.headers['x-circleback-signature'];
-    const secret = process.env.CIRCLEBACK_SECRET;
+   const signature = req.headers['x-circleback-signature'];
+   const secret = process.env.CIRCLEBACK_SECRET;
 
-    if (!signature) {
-        return res.status(401).json({ error: 'No signature header' });
-    }
+   if (!signature) {
+       console.log('No signature header found');
+       return res.status(401).json({ error: 'No signature header' });
+   }
 
-    const hmac = crypto.createHmac('sha256', secret)
-        .update(req.rawBody)
-        .digest('hex');
+   try {
+       const hmac = crypto.createHmac('sha256', secret)
+           .update(req.rawBody)
+           .digest('hex');
 
-    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(hmac))) {
-        return res.status(401).json({ error: 'Invalid signature' });
-    }
+       if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(hmac))) {
+           console.log('Invalid signature');
+           return res.status(401).json({ error: 'Invalid signature' });
+       }
+   } catch (error) {
+       console.error('Signature verification error:', error);
+       return res.status(401).json({ error: 'Signature verification failed' });
+   }
 
-    next();
+   next();
 }
 
 app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type');
-    next();
+   res.header('Access-Control-Allow-Origin', '*');
+   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+   res.header('Access-Control-Allow-Headers', 'Content-Type, x-circleback-signature');
+   next();
 });
 
 async function analyzeMeetingWithGPT(meetingData) {
-    try {
-        if (!meetingData) {
-            throw new Error('No meeting data provided');
-        }
+   try {
+       if (!meetingData) {
+           throw new Error('No meeting data provided');
+       }
 
-        const systemPrompt = `You are a growth & SEO agency's meeting analyst. This is a client meeting summary tool. Meetings typically involve client feedback on website redesigns, content strategy, and SEO performance. When analyzing meetings, structure the output as follows:
+       const systemPrompt = `You are a growth & SEO agency's meeting analyst. This is a client meeting summary tool. Meetings typically involve client feedback on website redesigns, content strategy, and SEO performance. When analyzing meetings, structure the output as follows:
 
 1. Meeting Context:
 📊 CLIENT FEEDBACK:
@@ -92,68 +98,68 @@ For each item specify:
 - Note required client decisions
 - Highlight upcoming milestones`;
 
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
-            },
-            body: JSON.stringify({
-                model: "gpt-3.5-turbo",
-                messages: [{
-                    role: "system",
-                    content: systemPrompt
-                }, {
-                    role: "user",
-                    content: `Analyze this client meeting data, focusing on client feedback, project status, and clear next steps for both agency team and client. Meeting Data:\n${JSON.stringify(meetingData, null, 2)}`
-                }]
-            })
-        });
+       const response = await fetch('https://api.openai.com/v1/chat/completions', {
+           method: 'POST',
+           headers: {
+               'Content-Type': 'application/json',
+               'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+           },
+           body: JSON.stringify({
+               model: "gpt-3.5-turbo",
+               messages: [{
+                   role: "system",
+                   content: systemPrompt
+               }, {
+                   role: "user",
+                   content: `Analyze this client meeting data, focusing on client feedback, project status, and clear next steps for both agency team and client. Meeting Data:\n${JSON.stringify(meetingData, null, 2)}`
+               }]
+           })
+       });
 
-        if (!response.ok) {
-            throw new Error(`OpenAI API error: ${response.status}`);
-        }
+       if (!response.ok) {
+           throw new Error(`OpenAI API error: ${response.status}`);
+       }
 
-        const data = await response.json();
-        
-        if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-            throw new Error('Invalid response from OpenAI API');
-        }
+       const data = await response.json();
+       
+       if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+           throw new Error('Invalid response from OpenAI API');
+       }
 
-        return data.choices[0].message.content;
+       return data.choices[0].message.content;
 
-    } catch (error) {
-        console.error('Error in meeting analysis:', error);
-        return `Error analyzing meeting: ${error.message}\n\nRaw meeting data received:\n${JSON.stringify(meetingData, null, 2)}`;
-    }
+   } catch (error) {
+       console.error('Error in meeting analysis:', error);
+       return `Error analyzing meeting: ${error.message}\n\nRaw meeting data received:\n${JSON.stringify(meetingData, null, 2)}`;
+   }
 }
 
 async function sendToSlack(message) {
-    const slackWebhookUrl = process.env.SLACK_WEBHOOK_URL;
-    try {
-        const response = await fetch(slackWebhookUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ text: message })
-        });
-        return response.ok;
-    } catch (error) {
-        console.error('Error sending to Slack:', error);
-        return false;
-    }
+   const slackWebhookUrl = process.env.SLACK_WEBHOOK_URL;
+   try {
+       const response = await fetch(slackWebhookUrl, {
+           method: 'POST',
+           headers: {
+               'Content-Type': 'application/json',
+           },
+           body: JSON.stringify({ text: message })
+       });
+       return response.ok;
+   } catch (error) {
+       console.error('Error sending to Slack:', error);
+       return false;
+   }
 }
 
 app.post('/webhook', verifyCirclebackSignature, async (req, res) => {
-    try {
-        console.log('Received meeting data:', req.body);
+   console.log('Headers:', JSON.stringify(req.headers, null, 2));
+   console.log('Raw Body:', req.rawBody?.toString());
+   console.log('Parsed Body:', req.body);
+   
+   try {
+       const analysis = await analyzeMeetingWithGPT(req.body);
 
-        // Analyze meeting data with ChatGPT
-        const analysis = await analyzeMeetingWithGPT(req.body);
-
-        // Format message for Slack
-        const message = `
+       const message = `
 *Meeting Analysis*
 📅 *Title:* ${req.body.meetingTitle}
 📆 *Date:* ${req.body.date}
@@ -161,25 +167,25 @@ app.post('/webhook', verifyCirclebackSignature, async (req, res) => {
 
 ${analysis}
 `;
-        
-        const slackResult = await sendToSlack(message);
-        
-        if (slackResult) {
-            res.json({ success: true, message: 'Analyzed and sent to Slack successfully' });
-        } else {
-            res.json({ success: false, message: 'Failed to send to Slack' });
-        }
-    } catch (error) {
-        console.error('Webhook error:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
+       
+       const slackResult = await sendToSlack(message);
+       
+       if (slackResult) {
+           res.json({ success: true, message: 'Analyzed and sent to Slack successfully' });
+       } else {
+           res.json({ success: false, message: 'Failed to send to Slack' });
+       }
+   } catch (error) {
+       console.error('Webhook error:', error);
+       res.status(500).json({ success: false, error: error.message });
+   }
 });
 
 app.get('/', (req, res) => {
-    res.send('Server is running!');
+   res.send('Server is running!');
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+   console.log(`Server running on port ${PORT}`);
 });
