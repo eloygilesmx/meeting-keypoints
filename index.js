@@ -10,7 +10,7 @@ app.use(express.json({
 }));
 
 function verifyCirclebackSignature(req, res, next) {
-   const signature = req.headers['x-circleback-signature'];
+   const signature = req.headers['x-signature'] || req.headers['x-circleback-signature'];
    console.log('Headers received:', req.headers);
    console.log('Signature:', signature);
 
@@ -40,7 +40,7 @@ function verifyCirclebackSignature(req, res, next) {
 app.use((req, res, next) => {
    res.header('Access-Control-Allow-Origin', '*');
    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-   res.header('Access-Control-Allow-Headers', 'Content-Type, x-circleback-signature');
+   res.header('Access-Control-Allow-Headers', 'Content-Type, x-circleback-signature, x-signature');
    next();
 });
 
@@ -154,32 +154,30 @@ async function sendToSlack(message) {
 }
 
 app.post('/webhook', verifyCirclebackSignature, async (req, res) => {
-   console.log('Headers:', JSON.stringify(req.headers, null, 2));
-   console.log('Raw Body:', req.rawBody?.toString());
-   console.log('Parsed Body:', req.body);
-   
    try {
-       const analysis = await analyzeMeetingWithGPT(req.body);
+       console.log('Request body type:', typeof req.body);
+       console.log('Request body keys:', Object.keys(req.body));
+       console.log('Full request body:', JSON.stringify(req.body, null, 2));
+       
+       if (!req.body || !req.body.meetingTitle) {
+           console.error('Invalid meeting data format');
+           return res.status(400).json({ error: 'Invalid meeting data format' });
+       }
 
+       const analysis = await analyzeMeetingWithGPT(req.body);
        const message = `
 *Meeting Analysis*
-📅 *Title:* ${req.body.meetingTitle}
-📆 *Date:* ${req.body.date}
-👥 *Participants:* ${req.body.participants.join(', ')}
+📅 *Title:* ${req.body.meetingTitle || 'N/A'}
+📆 *Date:* ${req.body.date || 'N/A'}
+👥 *Participants:* ${Array.isArray(req.body.participants) ? req.body.participants.join(', ') : 'N/A'}
 
-${analysis}
-`;
+${analysis}`;
        
        const slackResult = await sendToSlack(message);
-       
-       if (slackResult) {
-           res.json({ success: true, message: 'Analyzed and sent to Slack successfully' });
-       } else {
-           res.json({ success: false, message: 'Failed to send to Slack' });
-       }
+       return res.json({ success: slackResult });
    } catch (error) {
-       console.error('Webhook error:', error);
-       res.status(500).json({ success: false, error: error.message });
+       console.error('Full error:', error);
+       return res.status(500).json({ error: error.message });
    }
 });
 
