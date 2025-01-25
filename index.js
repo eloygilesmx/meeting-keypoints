@@ -10,6 +10,7 @@ app.use(express.json({
 }));
 
 function verifyCirclebackSignature(req, res, next) {
+   console.log('Verifying signature...');
    const signature = req.headers['x-signature'] || req.headers['x-circleback-signature'];
    console.log('Headers received:', req.headers);
    console.log('Signature:', signature);
@@ -153,7 +154,12 @@ async function sendToSlack(message) {
    }
 }
 
-app.post('/webhook', verifyCirclebackSignature, async (req, res) => {
+app.post('/webhook', (req, res, next) => {
+   console.log('Received POST request to /webhook');
+   console.log('Request headers:', req.headers);
+   console.log('Request body:', req.body);
+   next();
+}, verifyCirclebackSignature, async (req, res) => {
    try {
        console.log('Request body type:', typeof req.body);
        console.log('Request body keys:', Object.keys(req.body));
