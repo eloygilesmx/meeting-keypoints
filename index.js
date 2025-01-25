@@ -114,7 +114,7 @@ For each item specify:
                    content: systemPrompt
                }, {
                    role: "user",
-                   content: `Analyze this client meeting data, focusing on client feedback, project status, and clear next steps for both agency team and client. Meeting Data:\n${JSON.stringify(meetingData, null, 2)}`
+                   content: `Analyze this client meeting data, focusing on client feedback, project status, and clear next steps for both agency team and client. Meeting Notes:\n${meetingData.notes}\n\nAction Items:\n${JSON.stringify(meetingData.actionItems, null, 2)}`
                }]
            })
        });
@@ -133,7 +133,7 @@ For each item specify:
 
    } catch (error) {
        console.error('Error in meeting analysis:', error);
-       return `Error analyzing meeting: ${error.message}\n\nRaw meeting data received:\n${JSON.stringify(meetingData, null, 2)}`;
+       return `Error analyzing meeting: ${error.message}`;
    }
 }
 
@@ -154,18 +154,11 @@ async function sendToSlack(message) {
    }
 }
 
-app.post('/webhook', (req, res, next) => {
-   console.log('Received POST request to /webhook');
-   console.log('Request headers:', req.headers);
-   console.log('Request body:', req.body);
-   next();
-}, verifyCirclebackSignature, async (req, res) => {
+app.post('/webhook', verifyCirclebackSignature, async (req, res) => {
    try {
-       console.log('Request body type:', typeof req.body);
-       console.log('Request body keys:', Object.keys(req.body));
-       console.log('Full request body:', JSON.stringify(req.body, null, 2));
+       console.log('Request body:', JSON.stringify(req.body, null, 2));
        
-       if (!req.body || !req.body.meetingTitle) {
+       if (!req.body || !req.body.name || !req.body.notes) {
            console.error('Invalid meeting data format');
            return res.status(400).json({ error: 'Invalid meeting data format' });
        }
@@ -173,9 +166,9 @@ app.post('/webhook', (req, res, next) => {
        const analysis = await analyzeMeetingWithGPT(req.body);
        const message = `
 *Meeting Analysis*
-📅 *Title:* ${req.body.meetingTitle || 'N/A'}
-📆 *Date:* ${req.body.date || 'N/A'}
-👥 *Participants:* ${Array.isArray(req.body.participants) ? req.body.participants.join(', ') : 'N/A'}
+📅 *Title:* ${req.body.name}
+📆 *Date:* ${new Date(req.body.createdAt).toLocaleDateString()}
+👥 *Participants:* ${req.body.attendees.map(a => a.name).join(', ')}
 
 ${analysis}`;
        
